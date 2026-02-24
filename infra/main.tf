@@ -1,8 +1,13 @@
-﻿terraform {
+# main.tf - VERSIÓN COMPLETA CON CLOUDFRONT Y POLÍTICA DE BUCKET
+terraform {
   required_providers {
     aws = {
       source  = "hashicorp/aws"
       version = "~> 5.0"
+    }
+    random = {
+      source  = "hashicorp/random"
+      version = "~> 3.5"
     }
   }
 }
@@ -11,44 +16,48 @@ provider "aws" {
   region = var.aws_region
 }
 
-# Random suffix para nombres Ãºnicos
+# Random suffix para nombres únicos
 resource "random_id" "suffix" {
   byte_length = 4
 }
 
-# Local values para reutilizar
+# Local values
 locals {
-  bucket_name = "${var.project_name}-${random_id.suffix.hex}"
+  bucket_name = "heralft-mvp-${random_id.suffix.hex}"
+  
+  tags = {
+    Name        = "heralft-mvp"
+    Environment = "production"
+    Project     = "heralft-mvp"
+  }
 }
 
-# 1. Bucket S3 para hosting estÃ¡tico
+# ===== S3 BUCKET =====
 resource "aws_s3_bucket" "website" {
   bucket = local.bucket_name
-
-  tags = {
-    Name        = "${var.project_name}-website"
-    Environment = "production"
-    Project     = var.project_name
-  }
+  tags   = local.tags
 }
 
-# 2. ConfiguraciÃ³n de hosting estÃ¡tico
+# Configuración de hosting estático
 resource "aws_s3_bucket_website_configuration" "website" {
   bucket = aws_s3_bucket.website.bucket
-
-  index_document {
-    suffix = "index.html"
-  }
-
-  error_document {
-    key = "error.html"
-  }
+  index_document { suffix = "index.html" }
+  error_document { key = "error.html" }
 }
 
-# 3. PolÃ­tica de acceso pÃºblico (solo lectura)
-resource "aws_s3_bucket_policy" "website" {
+# PRIMERO: Desbloquear el bucket (PERMITIR políticas públicas)
+resource "aws_s3_bucket_public_access_block" "website" {
   bucket = aws_s3_bucket.website.bucket
 
+  block_public_acls       = false
+  block_public_policy     = false  # ← ESTO DEBE SER false
+  ignore_public_acls      = false
+  restrict_public_buckets = false
+}
+
+# LUEGO: Aplicar la política (después del desbloqueo)
+resource "aws_s3_bucket_policy" "website" {
+  bucket = aws_s3_bucket.website.bucket
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [
@@ -58,7 +67,6 @@ resource "aws_s3_bucket_policy" "website" {
         Action    = "s3:GetObject"
         Resource  = "${aws_s3_bucket.website.arn}/*"
       },
-      # Permiso adicional para CloudFront
       {
         Effect    = "Allow"
         Principal = {
@@ -69,21 +77,14 @@ resource "aws_s3_bucket_policy" "website" {
       }
     ]
   })
+
+  depends_on = [aws_s3_bucket_public_access_block.website]  # ← IMPORTANTE
 }
 
-# 4. ConfiguraciÃ³n para evitar que el bucket sea pÃºblico por ACL
-resource "aws_s3_bucket_public_access_block" "website" {
-  bucket = aws_s3_bucket.website.bucket
-
-  block_public_acls       = false
-  block_public_policy     = false
-  ignore_public_acls      = false
-  restrict_public_buckets = false
-}
-
-# 5. Subir archivos del sitio web (ACTUALIZADO)
+# DESPUÉS: Subir archivos (depende de la política)
 resource "aws_s3_object" "website_files" {
-  for_each = fileset("../src/", "**/*.{html,css,js}")  # TODOS los archivos recursivamente desde src/
+  depends_on = [aws_s3_bucket_policy.website]  # ← IMPORTANTE
+  for_each = fileset("../src/", "**/*.{html,css,js}")
 
   bucket = aws_s3_bucket.website.bucket
   key    = each.value
@@ -97,101 +98,37 @@ resource "aws_s3_object" "website_files" {
   }, reverse(split(".", each.value))[0], "application/octet-stream")
 }
 
-# 6. DynamoDB Table para guardar leads de formularios
-resource "aws_dynamodb_table" "leads" {
-  name         = "${var.project_name}-leads"
-  billing_mode = "PAY_PER_REQUEST"  # â† MODO GRATUITO
-  hash_key     = "id"
-
-  attribute {
-    name = "id"
-    type = "S"
-  }
-
-  attribute {
-    name = "email"
-    type = "S"
-  }
-
-  attribute {
-    name = "telefono"  # â† NUEVO: Para bÃºsqueda por WhatsApp
-    type = "S"
-  }
-
-  attribute {
-    name = "fecha"
-    type = "S"
-  }
-
-  # Ãndices globales secundarios para bÃºsquedas eficientes
-  global_secondary_index {
-    name            = "EmailIndex"
-    hash_key        = "email"
-    projection_type = "ALL"
-    read_capacity   = 1
-    write_capacity  = 1
-  }
-
-  global_secondary_index {
-    name            = "FechaIndex"
-    hash_key        = "fecha"
-    projection_type = "ALL"
-    read_capacity   = 1
-    write_capacity  = 1
-  }
-
-    # ðŸ‘‡ NUEVO: Ãndice para bÃºsqueda por WhatsApp
-  global_secondary_index {
-    name            = "TelefonoIndex"
-    hash_key        = "telefono"
-    projection_type = "ALL"
-    read_capacity   = 1
-    write_capacity  = 1
-  }
-
-  tags = {
-    Name        = "${var.project_name}-leads"
-    Environment = "production"
-    Project     = var.project_name
-  }
-}
-
-# 7. CLOUDFront - Identity para acceso seguro a S3
+# ============================================
+# 2. CLOUDFRONT - CDN para el sitio web
+# ============================================
 resource "aws_cloudfront_origin_access_identity" "website" {
-  comment = "Acceso a S3 para ${var.project_name}"
+  comment = "Acceso a S3 para heralft-mvp"
 }
 
-# 8. CLOUDFront - DistribuciÃ³n para el sitio web
 resource "aws_cloudfront_distribution" "website" {
-  count = var.enable_cloudfront ? 1 : 0
-
-  origin {
-    domain_name = aws_s3_bucket_website_configuration.website.website_endpoint
-    origin_id   = "S3-Website-${aws_s3_bucket.website.bucket}.s3-website-${var.aws_region}.amazonaws.com"
-
-    custom_origin_config {
-      http_port              = 80
-      https_port             = 443
-      origin_protocol_policy = "http-only"
-      origin_ssl_protocols   = ["TLSv1.2"]
-    }
-  }
-
   enabled             = true
   is_ipv6_enabled     = true
-  comment             = "DistribuciÃ³n CloudFront para ${var.project_name}"
+  comment             = "CloudFront para heralft-mvp"
   default_root_object = "index.html"
-  price_class         = var.cloudfront_price_class
+  price_class         = "PriceClass_100"  # Más económico
 
-  aliases = []  # Puedes agregar tu dominio despuÃ©s
+  origin {
+    domain_name = aws_s3_bucket.website.bucket_regional_domain_name
+    origin_id   = "S3-${aws_s3_bucket.website.bucket}"
+
+    s3_origin_config {
+      origin_access_identity = aws_cloudfront_origin_access_identity.website.cloudfront_access_identity_path
+    }
+  }
 
   default_cache_behavior {
     allowed_methods  = ["DELETE", "GET", "HEAD", "OPTIONS", "PATCH", "POST", "PUT"]
     cached_methods   = ["GET", "HEAD"]
-    target_origin_id = "S3-Website-${aws_s3_bucket.website.bucket}.s3-website-${var.aws_region}.amazonaws.com"
+    target_origin_id = "S3-${aws_s3_bucket.website.bucket}"
 
     forwarded_values {
       query_string = false
+      headers      = ["Origin"]
 
       cookies {
         forward = "none"
@@ -202,12 +139,9 @@ resource "aws_cloudfront_distribution" "website" {
     min_ttl                = 0
     default_ttl            = 3600
     max_ttl                = 86400
-
-    # PolÃ­ticas de seguridad
-    response_headers_policy_id = "67f7725c-6f97-4210-82d7-5512b31e9d03"  # SecurityHeadersPolicy
   }
 
-  # Comportamiento para errores - SPA friendly
+  # Manejo de errores para SPA
   custom_error_response {
     error_code         = 404
     response_code      = 200
@@ -227,40 +161,66 @@ resource "aws_cloudfront_distribution" "website" {
   }
 
   viewer_certificate {
-    cloudfront_default_certificate = true
+    cloudfront_default_certificate = true  # Certificado SSL gratuito
   }
 
-  tags = {
-    Name        = "${var.project_name}-cloudfront"
-    Environment = "production"
-    Project     = var.project_name
+  tags = local.tags
+}
+
+# ============================================
+# 3. DYNAMODB - Tabla para leads
+# ============================================
+resource "aws_dynamodb_table" "leads" {
+  name         = "heralft-leads-mvp"
+  billing_mode = "PAY_PER_REQUEST"
+  hash_key     = "id"
+
+  attribute {
+    name = "id"
+    type = "S"
   }
+
+  attribute {
+    name = "telefono"
+    type = "S"
+  }
+
+  attribute {
+    name = "email"
+    type = "S"
+  }
+
+  attribute {
+    name = "fecha"
+    type = "S"
+  }
+
+  global_secondary_index {
+    name            = "TelefonoIndex"
+    hash_key        = "telefono"
+    projection_type = "ALL"
+  }
+
+  global_secondary_index {
+    name            = "EmailIndex"
+    hash_key        = "email"
+    projection_type = "ALL"
+  }
+
+  global_secondary_index {
+    name            = "FechaIndex"
+    hash_key        = "fecha"
+    projection_type = "ALL"
+  }
+
+  tags = local.tags
 }
 
-# Outputs para mostrar informaciÃ³n importante
-output "website_url" {
-  value = "http://${aws_s3_bucket.website.bucket}.s3-website-${var.aws_region}.amazonaws.com"
-}
-
-output "cloudfront_url" {
-  value = var.enable_cloudfront ? "https://${aws_cloudfront_distribution.website[0].domain_name}" : "CloudFront deshabilitado"
-}
-
-output "s3_bucket_name" {
-  value = aws_s3_bucket.website.bucket
-}
-
-output "dynamodb_table_name" {
-  value = aws_dynamodb_table.leads.name
-}
-
-output "dynamodb_table_arn" {
-  value = aws_dynamodb_table.leads.arn
-}
-
-# 9. IAM Role para Lambda
+# ============================================
+# 4. IAM ROLE Y POLÍTICAS para Lambda
+# ============================================
 resource "aws_iam_role" "lambda_role" {
-  name = "${var.project_name}-lambda-role"
+  name = "heralft-mvp-lambda-role"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
@@ -275,14 +235,11 @@ resource "aws_iam_role" "lambda_role" {
     ]
   })
 
-  tags = {
-    Project = var.project_name
-  }
+  tags = local.tags
 }
 
-# 10. IAM Policy para Lambda
 resource "aws_iam_role_policy" "lambda_policy" {
-  name = "${var.project_name}-lambda-policy"
+  name = "heralft-mvp-lambda-policy"
   role = aws_iam_role.lambda_role.id
 
   policy = jsonencode({
@@ -292,7 +249,7 @@ resource "aws_iam_role_policy" "lambda_policy" {
         Effect = "Allow"
         Action = [
           "logs:CreateLogGroup",
-          "logs:CreateLogStream", 
+          "logs:CreateLogStream",
           "logs:PutLogEvents"
         ]
         Resource = "arn:aws:logs:*:*:*"
@@ -302,58 +259,21 @@ resource "aws_iam_role_policy" "lambda_policy" {
         Action = [
           "dynamodb:PutItem",
           "dynamodb:GetItem",
-          "dynamodb:UpdateItem", 
-          "dynamodb:Query",
-          "dynamodb:Scan"
+          "dynamodb:UpdateItem",
+          "dynamodb:Query"
         ]
         Resource = aws_dynamodb_table.leads.arn
-      },
-      {
-        Effect = "Allow"
-        Action = [
-          "ses:SendEmail",
-          "ses:SendRawEmail"
-        ]
-        Resource = "*"
-      },
-            # ðŸ‘‡ NUEVOS PERMISOS PARA BEDROCK
-      {
-        Effect = "Allow"
-        Action = [
-          "bedrock:InvokeModel",
-          "bedrock:InvokeModelWithResponseStream"
-        ]
-        Resource = [
-          "arn:aws:bedrock:${var.aws_region}::foundation-model/anthropic.claude-3-haiku-20240307-v1:0",
-          "arn:aws:bedrock:${var.aws_region}::foundation-model/anthropic.claude-3-sonnet-20240229-v1:0",
-          "arn:aws:bedrock:${var.aws_region}::foundation-model/meta.llama3-70b-instruct-v1:0"
-        ]
-      },
-      # ðŸ‘‡ NUEVOS PERMISOS PARA STEP FUNCTIONS (para despuÃ©s)
-      {
-        Effect = "Allow"
-        Action = [
-          "states:StartExecution"
-        ]
-        Resource = "*" # Temporalmente
-      },
-      # ðŸ‘‡ NUEVOS PERMISOS PARA COGNITO
-      {
-        Effect = "Allow"
-        Action = [
-          "cognito-idp:*",
-          "cognito-identity:*"
-        ]
-        Resource = "*"
       }
     ]
   })
 }
 
-# 11. Lambda Function
+# ============================================
+# 5. LAMBDA - Procesador de formularios
+# ============================================
 resource "aws_lambda_function" "form_processor" {
   filename         = "form-processor.zip"
-  function_name    = "${var.project_name}-form-processor"
+  function_name    = "heralft-mvp-form-processor"
   role            = aws_iam_role.lambda_role.arn
   handler         = "index.handler"
   runtime         = "nodejs18.x"
@@ -365,33 +285,31 @@ resource "aws_lambda_function" "form_processor" {
     }
   }
 
-  tags = {
-    Project = var.project_name
-  }
+  tags = local.tags
 }
 
-# 12. API Gateway REST (NO HTTP) - MÃS CONFIABLE
+# ============================================
+# 6. API GATEWAY - REST API para el formulario
+# ============================================
 resource "aws_api_gateway_rest_api" "main" {
-  name        = "${var.project_name}-api"
-  description = "API REST para HerAlf Legal"
+  name        = "heralft-mvp-api"
+  description = "API MVP para HerAlf Legal"
 
   endpoint_configuration {
     types = ["REGIONAL"]
   }
 
-  tags = {
-    Project = var.project_name
-  }
+  tags = local.tags
 }
 
-# 13. Resource para /formulario
+# Recurso /formulario
 resource "aws_api_gateway_resource" "formulario" {
   rest_api_id = aws_api_gateway_rest_api.main.id
   parent_id   = aws_api_gateway_rest_api.main.root_resource_id
   path_part   = "formulario"
 }
 
-# 14. MÃ©todo POST
+# Método POST
 resource "aws_api_gateway_method" "post" {
   rest_api_id   = aws_api_gateway_rest_api.main.id
   resource_id   = aws_api_gateway_resource.formulario.id
@@ -399,15 +317,7 @@ resource "aws_api_gateway_method" "post" {
   authorization = "NONE"
 }
 
-# 15. MÃ©todo OPTIONS para CORS
-resource "aws_api_gateway_method" "options" {
-  rest_api_id   = aws_api_gateway_rest_api.main.id
-  resource_id   = aws_api_gateway_resource.formulario.id
-  http_method   = "OPTIONS"
-  authorization = "NONE"
-}
-
-# 16. Integration con Lambda
+# Integración con Lambda
 resource "aws_api_gateway_integration" "lambda" {
   rest_api_id = aws_api_gateway_rest_api.main.id
   resource_id = aws_api_gateway_resource.formulario.id
@@ -418,7 +328,15 @@ resource "aws_api_gateway_integration" "lambda" {
   uri                     = aws_lambda_function.form_processor.invoke_arn
 }
 
-# 17. Integration response para OPTIONS (CORS)
+# Método OPTIONS para CORS
+resource "aws_api_gateway_method" "options" {
+  rest_api_id   = aws_api_gateway_rest_api.main.id
+  resource_id   = aws_api_gateway_resource.formulario.id
+  http_method   = "OPTIONS"
+  authorization = "NONE"
+}
+
+# Integration para OPTIONS
 resource "aws_api_gateway_integration" "options" {
   rest_api_id = aws_api_gateway_rest_api.main.id
   resource_id = aws_api_gateway_resource.formulario.id
@@ -431,7 +349,7 @@ resource "aws_api_gateway_integration" "options" {
   }
 }
 
-# 18. Method response para OPTIONS
+# Method response para OPTIONS
 resource "aws_api_gateway_method_response" "options" {
   rest_api_id = aws_api_gateway_rest_api.main.id
   resource_id = aws_api_gateway_resource.formulario.id
@@ -443,13 +361,9 @@ resource "aws_api_gateway_method_response" "options" {
     "method.response.header.Access-Control-Allow-Methods" = true
     "method.response.header.Access-Control-Allow-Origin"  = true
   }
-
-  response_models = {
-    "application/json" = "Empty"
-  }
 }
 
-# 19. Integration response para OPTIONS
+# Integration response para OPTIONS
 resource "aws_api_gateway_integration_response" "options" {
   rest_api_id = aws_api_gateway_rest_api.main.id
   resource_id = aws_api_gateway_resource.formulario.id
@@ -458,26 +372,23 @@ resource "aws_api_gateway_integration_response" "options" {
 
   response_parameters = {
     "method.response.header.Access-Control-Allow-Headers" = "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
-    "method.response.header.Access-Control-Allow-Methods" = "'POST,OPTIONS,GET'"
-    "method.response.header.Access-Control-Allow-Origin"  = "'https://d3j9ea8ae2wjdm.cloudfront.net'"
+    "method.response.header.Access-Control-Allow-Methods" = "'POST,OPTIONS'"
+    "method.response.header.Access-Control-Allow-Origin"  = "'*'"
   }
 
   depends_on = [aws_api_gateway_integration.options]
 }
 
-# 20. Deployment
+# Deployment
 resource "aws_api_gateway_deployment" "production" {
   depends_on = [
     aws_api_gateway_integration.lambda,
-    aws_api_gateway_integration.options,
-    aws_api_gateway_integration.webhook_lambda,      # â† NUEVO
-    aws_api_gateway_integration.webhook_get_integration # â† NUEVO
+    aws_api_gateway_integration.options
   ]
 
   rest_api_id = aws_api_gateway_rest_api.main.id
   stage_name  = "production"
 
-  # Esto fuerza un nuevo despliegue cada vez que cambies la configuración de la API
   triggers = {
     redeployment = sha1(jsonencode([
       aws_api_gateway_resource.formulario,
@@ -493,7 +404,7 @@ resource "aws_api_gateway_deployment" "production" {
   }
 }
 
-# 21. Lambda permission para REST API
+# Permiso para que API Gateway invoque Lambda
 resource "aws_lambda_permission" "api_gw" {
   statement_id  = "AllowExecutionFromAPIGateway"
   action        = "lambda:InvokeFunction"
@@ -503,306 +414,30 @@ resource "aws_lambda_permission" "api_gw" {
   source_arn = "${aws_api_gateway_rest_api.main.execution_arn}/*/POST/formulario"
 }
 
-# 22. Output para REST API
-output "api_gateway_url" {
-  value = "${aws_api_gateway_deployment.production.invoke_url}/formulario"
+# ============================================
+# OUTPUTS
+# ============================================
+output "website_url" {
+  description = "URL directa del bucket S3"
+  value       = "http://${aws_s3_bucket.website.bucket}.s3-website-${var.aws_region}.amazonaws.com"
 }
 
-# 23. Cognito User Pool para autenticaciÃ³n
-resource "aws_cognito_user_pool" "users" {
-  name = "${var.project_name}-users"
-
-  # PolÃ­tica de contraseÃ±as seguras
-  password_policy {
-    minimum_length                   = 8
-    require_lowercase                = true
-    require_numbers                  = true
-    require_symbols                  = true
-    require_uppercase                = true
-    temporary_password_validity_days = 7
-  }
-
-  # VerificaciÃ³n automÃ¡tica de email
-  auto_verified_attributes = ["email"]
-
-  # ConfiguraciÃ³n de MFA (opcional)
-  mfa_configuration = "OFF"
-
-  # Esquema de atributos personalizados
-  schema {
-    name                = "nombre_completo"
-    attribute_data_type = "String"
-    mutable             = true
-    #required            = true
-    
-    string_attribute_constraints {
-      min_length = 1
-      max_length = 100
-    }
-  }
-
-  schema {
-    name                = "telefono"
-    attribute_data_type = "String"
-    mutable             = true
-    #required            = false
-    
-    string_attribute_constraints {
-      min_length = 10
-      max_length = 15
-    }
-  }
-
-  # ConfiguraciÃ³n de recuperaciÃ³n
-  account_recovery_setting {
-    recovery_mechanism {
-      name     = "verified_email"
-      priority = 1
-    }
-  }
-
-  tags = {
-    Project = var.project_name
-  }
+output "cloudfront_url" {
+  description = "URL de CloudFront (recomendada para producción)"
+  value       = "https://${aws_cloudfront_distribution.website.domain_name}"
 }
 
-# 24. Cognito User Pool Client (Frontend)
-resource "aws_cognito_user_pool_client" "web" {
-  name = "${var.project_name}-web-client"
-
-  user_pool_id = aws_cognito_user_pool.users.id
-
-  # ConfiguraciÃ³n bÃ¡sica de autenticaciÃ³n
-  explicit_auth_flows = [
-    "ALLOW_REFRESH_TOKEN_AUTH",
-    "ALLOW_USER_SRP_AUTH"
-  ]
-
-  # ConfiguraciÃ³n OAuth simplificada
-  allowed_oauth_flows_user_pool_client = true
-  allowed_oauth_flows = ["code"]
-  allowed_oauth_scopes = ["email", "openid", "profile"]
-
-  # URLs de callback
-  callback_urls = [
-    "http://localhost:3000",
-    "https://${aws_s3_bucket.website.bucket}.s3-website-${var.aws_region}.amazonaws.com"
-  ]
-
-  logout_urls = [
-    "http://localhost:3000"
-  ]
-
-  supported_identity_providers = ["COGNITO"]
-
-  # ConfiguraciÃ³n de tokens
-  id_token_validity      = 24
-  access_token_validity  = 1
-  refresh_token_validity = 30
-
-  # Atributos bÃ¡sicos
-  read_attributes = [
-    "email"
-  ]
-
-  write_attributes = [
-    "email"
-  ]
-
-  # Configuraciones de seguridad
-  prevent_user_existence_errors = "ENABLED"
+output "cloudfront_domain" {
+  description = "Dominio de CloudFront"
+  value       = aws_cloudfront_distribution.website.domain_name
 }
 
-# 25. Cognito User Pool Domain
-resource "aws_cognito_user_pool_domain" "main" {
-  domain       = "${var.project_name}-auth"
-  user_pool_id = aws_cognito_user_pool.users.id
+output "api_url" {
+  description = "URL de la API para el formulario"
+  value       = "${aws_api_gateway_deployment.production.invoke_url}/formulario"
 }
 
-# 26. Cognito Identity Pool (Para acceso a AWS services)
-resource "aws_cognito_identity_pool" "main" {
-  identity_pool_name               = "${var.project_name}-identity-pool"
-  allow_unauthenticated_identities = false
-
-  cognito_identity_providers {
-    client_id     = aws_cognito_user_pool_client.web.id
-    provider_name = aws_cognito_user_pool.users.endpoint
-  }
-}
-
-# 27. IAM Role para usuarios autenticados
-resource "aws_iam_role" "authenticated" {
-  name = "${var.project_name}-cognito-authenticated"
-
-  assume_role_policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Effect = "Allow"
-        Principal = {
-          Federated = "cognito-identity.amazonaws.com"
-        }
-        Action = "sts:AssumeRoleWithWebIdentity"
-        Condition = {
-          StringEquals = {
-            "cognito-identity.amazonaws.com:aud" = aws_cognito_identity_pool.main.id
-          }
-          "ForAnyValue:StringLike" = {
-            "cognito-identity.amazonaws.com:amr" = "authenticated"
-          }
-        }
-      }
-    ]
-  })
-}
-
-# 28. Policy para usuarios autenticados
-resource "aws_iam_role_policy" "authenticated" {
-  name = "${var.project_name}-cognito-policy"
-  role = aws_iam_role.authenticated.id
-
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Effect = "Allow"
-        Action = [
-          "s3:GetObject",
-          "s3:PutObject"
-        ]
-        Resource = [
-          "${aws_s3_bucket.website.arn}/documents/*",
-          "${aws_s3_bucket.website.arn}/uploads/*"
-        ]
-      },
-      {
-        Effect = "Allow"
-        Action = [
-          "dynamodb:GetItem",
-          "dynamodb:PutItem",
-          "dynamodb:UpdateItem",
-          "dynamodb:Query"
-        ]
-        Resource = [
-          aws_dynamodb_table.leads.arn,
-          "${aws_dynamodb_table.leads.arn}/index/*"
-        ]
-      },
-      {
-        Effect = "Allow"
-        Action = [
-          "execute-api:Invoke"
-        ]
-        Resource = [
-          "${aws_api_gateway_rest_api.main.execution_arn}/*"
-        ]
-      }
-    ]
-  })
-}
-
-# 29. Cognito Identity Pool Role Attachment
-resource "aws_cognito_identity_pool_roles_attachment" "main" {
-  identity_pool_id = aws_cognito_identity_pool.main.id
-
-  roles = {
-    "authenticated" = aws_iam_role.authenticated.arn
-  }
-}
-# 31. Lambda Function para WhatsApp Webhook
-resource "aws_lambda_function" "whatsapp_webhook" {
-  filename      = "whatsapp-webhook.zip"
-  function_name = "${var.project_name}-whatsapp-webhook"
-  role          = aws_iam_role.lambda_role.arn
-  handler       = "whatsapp-webhook.handler"
-  runtime       = "nodejs18.x"
-  timeout       = 30
-
-  environment {
-    variables = {
-      DYNAMODB_TABLE           = aws_dynamodb_table.leads.name
-      WHATSAPP_PHONE_NUMBER_ID = var.whatsapp_phone_number_id
-      WHATSAPP_API_VERSION     = var.whatsapp_api_version
-      BEDROCK_MODEL_ID         = var.bedrock_model_id
-      # El token se manejarÃ¡ via Secrets Manager despuÃ©s
-    }
-  }
-
-  tags = {
-    Project = var.project_name
-  }
-}
-
-# 32. API Gateway Resource para webhook WhatsApp
-resource "aws_api_gateway_resource" "webhook" {
-  rest_api_id = aws_api_gateway_rest_api.main.id
-  parent_id   = aws_api_gateway_rest_api.main.root_resource_id
-  path_part   = "webhook"
-}
-
-# 33. MÃ©todo POST para webhook
-resource "aws_api_gateway_method" "webhook_post" {
-  rest_api_id   = aws_api_gateway_rest_api.main.id
-  resource_id   = aws_api_gateway_resource.webhook.id
-  http_method   = "POST"
-  authorization = "NONE"
-}
-
-# 34. Integration con Lambda webhook
-resource "aws_api_gateway_integration" "webhook_lambda" {
-  rest_api_id = aws_api_gateway_rest_api.main.id
-  resource_id = aws_api_gateway_resource.webhook.id
-  http_method = aws_api_gateway_method.webhook_post.http_method
-
-  integration_http_method = "POST"
-  type                    = "AWS_PROXY"
-  uri                     = aws_lambda_function.whatsapp_webhook.invoke_arn
-}
-
-# 35. MÃ©todo GET para verificaciÃ³n webhook (Meta requiere esto)
-resource "aws_api_gateway_method" "webhook_get" {
-  rest_api_id   = aws_api_gateway_rest_api.main.id
-  resource_id   = aws_api_gateway_resource.webhook.id
-  http_method   = "GET"
-  authorization = "NONE"
-}
-
-# 36. Integration para GET (mock response)
-resource "aws_api_gateway_integration" "webhook_get_integration" {
-  rest_api_id = aws_api_gateway_rest_api.main.id
-  resource_id = aws_api_gateway_resource.webhook.id
-  http_method = aws_api_gateway_method.webhook_get.http_method
-
-  type = "MOCK"
-  
-  request_templates = {
-    "application/json" = "{\"statusCode\": 200}"
-  }
-}
-
-# 37. Permiso para Lambda webhook
-resource "aws_lambda_permission" "webhook_api_gw" {
-  statement_id  = "AllowExecutionFromAPIGatewayWebhook"
-  action        = "lambda:InvokeFunction"
-  function_name = aws_lambda_function.whatsapp_webhook.function_name
-  principal     = "apigateway.amazonaws.com"
-
-  source_arn = "${aws_api_gateway_rest_api.main.execution_arn}/*/POST/webhook"
-}
-
-# 38. Outputs para Cognito
-output "cognito_user_pool_id" {
-  value = aws_cognito_user_pool.users.id
-}
-
-output "cognito_client_id" {
-  value = aws_cognito_user_pool_client.web.id
-}
-
-output "cognito_domain" {
-  value = "${aws_cognito_user_pool_domain.main.domain}.auth.${var.aws_region}.amazoncognito.com"
-}
-
-output "cognito_identity_pool_id" {
-  value = aws_cognito_identity_pool.main.id
+output "dynamodb_table" {
+  description = "Nombre de la tabla DynamoDB"
+  value       = aws_dynamodb_table.leads.name
 }

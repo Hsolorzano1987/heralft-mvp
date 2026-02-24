@@ -7,23 +7,34 @@ const client = new DynamoDBClient({ region: "us-east-1" });
 exports.handler = async (event) => {
     console.log('Event received:', JSON.stringify(event, null, 2));
     
-    // 🔥 HEADERS CORS EXACTOS - NO CAMBIAR
+    // 🔥 ORÍGENES PERMITIDOS - Actualizado para el nuevo proyecto
+    const allowedOrigins = [
+        'https://d1wui6q7x48uzo.cloudfront.net',  // NUEVO CloudFront (MVP)
+        'https://d3j9ea8ae2wjdm.cloudfront.net',  // Proyecto anterior (opcional)
+        'http://localhost:3000'                    // Desarrollo local
+    ];
+    
+    // Determinar el origen de la solicitud
+    const requestOrigin = event.headers?.origin || event.headers?.Origin || '';
+    const corsOrigin = allowedOrigins.includes(requestOrigin) ? requestOrigin : allowedOrigins[0];
+    
+    // 🔥 HEADERS CORS DINÁMICOS
     const corsHeaders = {
-        'Access-Control-Allow-Origin': 'https://d3j9ea8ae2wjdm.cloudfront.net',
+        'Access-Control-Allow-Origin': corsOrigin,
         'Access-Control-Allow-Headers': 'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token',
         'Access-Control-Allow-Methods': 'OPTIONS,POST,GET',
         'Access-Control-Allow-Credentials': 'true',
-        'Content-Type': 'application/json'  // 🔥 IMPORTANTE: Añadir esto
+        'Content-Type': 'application/json'
     };
     
-    // 🔥 DETECCIÓN CORRECTA de OPTIONS (3 formas diferentes según API Gateway)
+    // 🔥 DETECCIÓN de OPTIONS (preflight CORS)
     const isOptionsRequest = 
         event.httpMethod === 'OPTIONS' || 
         event.requestContext?.http?.method === 'OPTIONS' ||
         (event.requestContext && event.requestContext.httpMethod === 'OPTIONS');
     
     if (isOptionsRequest) {
-        console.log('Handling OPTIONS preflight request');
+        console.log('Handling OPTIONS preflight request for origin:', corsOrigin);
         return {
             statusCode: 200,
             headers: corsHeaders,
@@ -69,6 +80,18 @@ exports.handler = async (event) => {
             };
         }
         
+        // Validar email básico
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        if (!emailRegex.test(email)) {
+            return {
+                statusCode: 400,
+                headers: corsHeaders,
+                body: JSON.stringify({ 
+                    error: 'Email inválido'
+                })
+            };
+        }
+        
         // Crear item para DynamoDB
         const leadId = 'lead_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
         const now = new Date().toISOString();
@@ -81,18 +104,18 @@ exports.handler = async (event) => {
             telefono: { S: telefono.trim() },
             servicio: { S: servicio },
             descripcion: { S: descripcion.trim() },
-            fecha: { S: now.split('T')[0] }, // Solo la fecha YYYY-MM-DD
-            fechaCompleta: { S: now }, // Fecha completa ISO
+            fecha: { S: now.split('T')[0] },
+            fechaCompleta: { S: now },
             timestamp: { N: timestamp.toString() },
             status: { S: 'nuevo' },
-            fuente: { S: 'formulario-web' }
+            fuente: { S: 'formulario-web-mvp' }
         };
         
         console.log('Saving to DynamoDB:', item);
         
-        // Guardar en DynamoDB con SDK v3
+        // Guardar en DynamoDB
         await client.send(new PutItemCommand({
-            TableName: process.env.DYNAMODB_TABLE || 'heralf-legal-leads',
+            TableName: process.env.DYNAMODB_TABLE || 'heralft-leads-mvp',  // ← Actualizado
             Item: item
         }));
         
@@ -112,7 +135,6 @@ exports.handler = async (event) => {
     } catch (error) {
         console.error('❌ Error:', error);
         
-        // Manejo específico de errores de DynamoDB
         let errorMessage = 'Error interno del servidor';
         let statusCode = 500;
         
@@ -134,20 +156,4 @@ exports.handler = async (event) => {
             })
         };
     }
-};
-
-// 🔥 Función de test para verificar CORS
-exports.testCors = async () => {
-    return {
-        statusCode: 200,
-        headers: {
-            'Access-Control-Allow-Origin': '*',
-            'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-            message: 'CORS test endpoint',
-            corsConfigured: true,
-            allowedOrigin: 'https://d3j9ea8ae2wjdm.cloudfront.net'
-        })
-    };
 };
