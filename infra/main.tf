@@ -260,9 +260,12 @@ resource "aws_iam_role_policy" "lambda_policy" {
           "dynamodb:PutItem",
           "dynamodb:GetItem",
           "dynamodb:UpdateItem",
-          "dynamodb:Query"
+          "dynamodb:Query",
+          "dynamodb:Scan",        # ← NUEVO: necesario para listar casos
+          "dynamodb:DeleteItem"    # ← OPCIONAL: por si quieres eliminar casos después
         ]
         Resource = aws_dynamodb_table.leads.arn
+
       }
     ]
   })
@@ -275,6 +278,26 @@ resource "aws_lambda_function" "form_processor" {
   filename         = "form-processor.zip"
   function_name    = "heralft-mvp-form-processor"
   role            = aws_iam_role.lambda_role.arn
+  handler         = "index.handler"
+  runtime         = "nodejs18.x"
+  timeout         = 30
+
+  environment {
+    variables = {
+      DYNAMODB_TABLE = aws_dynamodb_table.leads.name
+    }
+  }
+
+  tags = local.tags
+}
+
+# ============================================
+# LAMBDA - Gestor de casos para abogados (NUEVA)
+# ============================================
+resource "aws_lambda_function" "case_manager" {
+  filename         = "case-manager.zip"
+  function_name    = "heralft-mvp-case-manager"
+  role            = aws_iam_role.lambda_role.arn  # Reutiliza el mismo rol
   handler         = "index.handler"
   runtime         = "nodejs18.x"
   timeout         = 30
@@ -383,7 +406,11 @@ resource "aws_api_gateway_integration_response" "options" {
 resource "aws_api_gateway_deployment" "production" {
   depends_on = [
     aws_api_gateway_integration.lambda,
-    aws_api_gateway_integration.options
+    aws_api_gateway_integration.options,
+    aws_api_gateway_integration.cases_get,           # ← NUEVO
+    aws_api_gateway_integration.cases_id_get,        # ← NUEVO
+    aws_api_gateway_integration.cases_id_assign_put, # ← NUEVO
+    aws_api_gateway_integration.cases_id_status_put  # ← NUEVO
   ]
 
   rest_api_id = aws_api_gateway_rest_api.main.id
@@ -396,6 +423,14 @@ resource "aws_api_gateway_deployment" "production" {
       aws_api_gateway_method.options,
       aws_api_gateway_integration.lambda,
       aws_api_gateway_integration.options,
+      aws_api_gateway_resource.cases,                 # ← NUEVO
+      aws_api_gateway_resource.cases_id,              # ← NUEVO
+      aws_api_gateway_resource.cases_id_assign,       # ← NUEVO
+      aws_api_gateway_resource.cases_id_status,       # ← NUEVO
+      aws_api_gateway_method.cases_get,               # ← NUEVO
+      aws_api_gateway_method.cases_id_get,            # ← NUEVO
+      aws_api_gateway_method.cases_id_assign_put,     # ← NUEVO
+      aws_api_gateway_method.cases_id_status_put      # ← NUEVO
     ]))
   }
 
@@ -412,6 +447,122 @@ resource "aws_lambda_permission" "api_gw" {
   principal     = "apigateway.amazonaws.com"
 
   source_arn = "${aws_api_gateway_rest_api.main.execution_arn}/*/POST/formulario"
+}
+
+# ============================================
+# API GATEWAY - Recursos para gestión de casos (NUEVOS)
+# ============================================
+
+# Recurso /cases
+resource "aws_api_gateway_resource" "cases" {
+  rest_api_id = aws_api_gateway_rest_api.main.id
+  parent_id   = aws_api_gateway_rest_api.main.root_resource_id
+  path_part   = "cases"
+}
+
+# GET /cases
+resource "aws_api_gateway_method" "cases_get" {
+  rest_api_id   = aws_api_gateway_rest_api.main.id
+  resource_id   = aws_api_gateway_resource.cases.id
+  http_method   = "GET"
+  authorization = "NONE"
+}
+
+resource "aws_api_gateway_integration" "cases_get" {
+  rest_api_id = aws_api_gateway_rest_api.main.id
+  resource_id = aws_api_gateway_resource.cases.id
+  http_method = aws_api_gateway_method.cases_get.http_method
+
+  integration_http_method = "POST"
+  type                    = "AWS_PROXY"
+  uri                     = aws_lambda_function.case_manager.invoke_arn
+}
+
+# Recurso /cases/{id}
+resource "aws_api_gateway_resource" "cases_id" {
+  rest_api_id = aws_api_gateway_rest_api.main.id
+  parent_id   = aws_api_gateway_resource.cases.id
+  path_part   = "{id}"
+}
+
+# GET /cases/{id}
+resource "aws_api_gateway_method" "cases_id_get" {
+  rest_api_id   = aws_api_gateway_rest_api.main.id
+  resource_id   = aws_api_gateway_resource.cases_id.id
+  http_method   = "GET"
+  authorization = "NONE"
+}
+
+resource "aws_api_gateway_integration" "cases_id_get" {
+  rest_api_id = aws_api_gateway_rest_api.main.id
+  resource_id = aws_api_gateway_resource.cases_id.id
+  http_method = aws_api_gateway_method.cases_id_get.http_method
+
+  integration_http_method = "POST"
+  type                    = "AWS_PROXY"
+  uri                     = aws_lambda_function.case_manager.invoke_arn
+}
+
+# Recurso /cases/{id}/assign
+resource "aws_api_gateway_resource" "cases_id_assign" {
+  rest_api_id = aws_api_gateway_rest_api.main.id
+  parent_id   = aws_api_gateway_resource.cases_id.id
+  path_part   = "assign"
+}
+
+# PUT /cases/{id}/assign
+resource "aws_api_gateway_method" "cases_id_assign_put" {
+  rest_api_id   = aws_api_gateway_rest_api.main.id
+  resource_id   = aws_api_gateway_resource.cases_id_assign.id
+  http_method   = "PUT"
+  authorization = "NONE"
+}
+
+resource "aws_api_gateway_integration" "cases_id_assign_put" {
+  rest_api_id = aws_api_gateway_rest_api.main.id
+  resource_id = aws_api_gateway_resource.cases_id_assign.id
+  http_method = aws_api_gateway_method.cases_id_assign_put.http_method
+
+  integration_http_method = "POST"
+  type                    = "AWS_PROXY"
+  uri                     = aws_lambda_function.case_manager.invoke_arn
+}
+
+# Recurso /cases/{id}/status
+resource "aws_api_gateway_resource" "cases_id_status" {
+  rest_api_id = aws_api_gateway_rest_api.main.id
+  parent_id   = aws_api_gateway_resource.cases_id.id
+  path_part   = "status"
+}
+
+# PUT /cases/{id}/status
+resource "aws_api_gateway_method" "cases_id_status_put" {
+  rest_api_id   = aws_api_gateway_rest_api.main.id
+  resource_id   = aws_api_gateway_resource.cases_id_status.id
+  http_method   = "PUT"
+  authorization = "NONE"
+}
+
+resource "aws_api_gateway_integration" "cases_id_status_put" {
+  rest_api_id = aws_api_gateway_rest_api.main.id
+  resource_id = aws_api_gateway_resource.cases_id_status.id
+  http_method = aws_api_gateway_method.cases_id_status_put.http_method
+
+  integration_http_method = "POST"
+  type                    = "AWS_PROXY"
+  uri                     = aws_lambda_function.case_manager.invoke_arn
+}
+
+# ============================================
+# PERMISOS para que API Gateway invoque la Lambda
+# ============================================
+resource "aws_lambda_permission" "case_manager_api_gw" {
+  statement_id  = "AllowExecutionFromAPIGatewayCaseManager"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.case_manager.function_name
+  principal     = "apigateway.amazonaws.com"
+
+  source_arn = "${aws_api_gateway_rest_api.main.execution_arn}/*/*/cases*"
 }
 
 # ============================================

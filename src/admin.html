@@ -1,0 +1,620 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Panel Abogados - HerAlf</title>
+    <link rel="stylesheet" href="assets/styles/main.css">
+    <style>
+        .admin-container {
+            max-width: 1400px;
+            margin: 2rem auto;
+            padding: 0 1rem;
+        }
+        
+        .admin-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 2rem;
+        }
+        
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1rem;
+            margin-bottom: 2rem;
+        }
+        
+        .stat-card {
+            background: white;
+            padding: 1.5rem;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            text-align: center;
+        }
+        
+        .stat-value {
+            font-size: 2rem;
+            font-weight: 700;
+            color: #2c3e50;
+        }
+        
+        .stat-label {
+            color: #666;
+            margin-top: 0.5rem;
+        }
+        
+        .filters-section {
+            background: #f8f9fa;
+            padding: 1.5rem;
+            border-radius: 8px;
+            margin-bottom: 2rem;
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1rem;
+        }
+        
+        .filter-group {
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .filter-group label {
+            margin-bottom: 0.5rem;
+            font-weight: 600;
+            color: #2c3e50;
+        }
+        
+        .filter-group select, .filter-group input {
+            padding: 0.5rem;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+        
+        .cases-table {
+            width: 100%;
+            border-collapse: collapse;
+            background: white;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        
+        .cases-table th {
+            background: #2c3e50;
+            color: white;
+            padding: 1rem;
+            text-align: left;
+        }
+        
+        .cases-table td {
+            padding: 1rem;
+            border-bottom: 1px solid #eee;
+        }
+        
+        .cases-table tr:hover {
+            background: #f5f5f5;
+        }
+        
+        .status-badge {
+            padding: 0.25rem 0.5rem;
+            border-radius: 4px;
+            font-size: 0.85rem;
+            font-weight: 600;
+            display: inline-block;
+        }
+        
+        .status-nuevo { background: #e3f2fd; color: #1976d2; }
+        .status-asignado { background: #fff3e0; color: #f57c00; }
+        .status-proceso { background: #f3e5f5; color: #7b1fa2; }
+        .status-cerrado { background: #e8f5e8; color: #388e3c; }
+        
+        .btn-action {
+            padding: 0.25rem 0.75rem;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.9rem;
+            margin-right: 0.25rem;
+        }
+        
+        .btn-assign { background: #2196f3; color: white; }
+        .btn-view { background: #4caf50; color: white; }
+        .btn-update { background: #ff9800; color: white; }
+        
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.5);
+            z-index: 1000;
+        }
+        
+        .modal-content {
+            background: white;
+            max-width: 500px;
+            margin: 5rem auto;
+            padding: 2rem;
+            border-radius: 8px;
+            position: relative;
+        }
+        
+        .modal-close {
+            position: absolute;
+            top: 1rem;
+            right: 1rem;
+            cursor: pointer;
+            font-size: 1.5rem;
+        }
+        
+        .form-group {
+            margin-bottom: 1rem;
+        }
+        
+        .form-group label {
+            display: block;
+            margin-bottom: 0.5rem;
+            font-weight: 600;
+        }
+        
+        .form-group input, .form-group select, .form-group textarea {
+            width: 100%;
+            padding: 0.5rem;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+        
+        .btn-primary {
+            padding: 0.75rem 1.5rem;
+            background: #2c3e50;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 1rem;
+        }
+        
+        .btn-primary:hover {
+            background: #34495e;
+        }
+        
+        .loading {
+            text-align: center;
+            padding: 2rem;
+            color: #666;
+        }
+        
+        .error-message {
+            background: #ffebee;
+            color: #c62828;
+            padding: 1rem;
+            border-radius: 4px;
+            margin-bottom: 1rem;
+        }
+        
+        .success-message {
+            background: #e8f5e9;
+            color: #2e7d32;
+            padding: 1rem;
+            border-radius: 4px;
+            margin-bottom: 1rem;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <div class="container">
+            <div class="logo-container">
+                <div class="logo">
+                    <span class="logo-icon">⚖️</span>
+                    <span class="logo-text">HerAlf - Panel de Abogados</span>
+                </div>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="index.html">← Volver al sitio público</a></li>
+                </ul>
+            </nav>
+        </div>
+    </header>
+
+    <div class="admin-container">
+        <div class="admin-header">
+            <h1>Gestión de Casos Legales</h1>
+            <div>
+                <span id="abogadoDisplay" style="font-weight: bold;"></span>
+                <button onclick="cambiarAbogado()" class="btn-action">Cambiar</button>
+            </div>
+        </div>
+
+        <!-- Stats Cards -->
+        <div class="stats-grid" id="statsContainer">
+            <div class="stat-card">
+                <div class="stat-value" id="totalCasos">-</div>
+                <div class="stat-label">Total Casos</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="casosNuevos">-</div>
+                <div class="stat-label">Nuevos</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="casosAsignados">-</div>
+                <div class="stat-label">Asignados</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="casosCerrados">-</div>
+                <div class="stat-label">Cerrados</div>
+            </div>
+        </div>
+
+        <!-- Filtros -->
+        <div class="filters-section">
+            <div class="filter-group">
+                <label for="filtroServicio">Tipo de Servicio</label>
+                <select id="filtroServicio">
+                    <option value="">Todos</option>
+                    <option value="derecho-peticion">Derecho de Petición</option>
+                    <option value="accion-tutela">Acción de Tutela</option>
+                    <option value="querella">Querella</option>
+                    <option value="consultoria">Consultoría</option>
+                    <option value="otro">Otro</option>
+                </select>
+            </div>
+            <div class="filter-group">
+                <label for="filtroStatus">Estado</label>
+                <select id="filtroStatus">
+                    <option value="">Todos</option>
+                    <option value="nuevo">Nuevo</option>
+                    <option value="asignado">Asignado</option>
+                    <option value="proceso">En Proceso</option>
+                    <option value="cerrado">Cerrado</option>
+                </select>
+            </div>
+            <div class="filter-group">
+                <label for="filtroAbogado">Mi abogado</label>
+                <select id="filtroAbogado">
+                    <option value="">Todos</option>
+                    <option value="misCasos">Solo mis casos</option>
+                </select>
+            </div>
+            <div class="filter-group">
+                <label>&nbsp;</label>
+                <button onclick="cargarCasos()" class="btn-primary">Aplicar Filtros</button>
+            </div>
+        </div>
+
+        <!-- Mensajes -->
+        <div id="messageContainer"></div>
+
+        <!-- Tabla de casos -->
+        <div style="overflow-x: auto;">
+            <table class="cases-table">
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>Fecha</th>
+                        <th>Cliente</th>
+                        <th>Contacto</th>
+                        <th>Servicio</th>
+                        <th>Estado</th>
+                        <th>Abogado</th>
+                        <th>Acciones</th>
+                    </tr>
+                </thead>
+                <tbody id="casesTableBody">
+                    <tr><td colspan="8" class="loading">Cargando casos...</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- Modal Asignar Caso -->
+    <div id="assignModal" class="modal">
+        <div class="modal-content">
+            <span class="modal-close" onclick="cerrarModal('assignModal')">&times;</span>
+            <h2>Asignar Caso a Abogado</h2>
+            <input type="hidden" id="assignCaseId">
+            <div class="form-group">
+                <label for="abogadoId">ID del Abogado</label>
+                <input type="text" id="abogadoId" placeholder="ej: abogado_01" value="abogado_01">
+            </div>
+            <div class="form-group">
+                <label for="abogadoNombre">Nombre del Abogado</label>
+                <input type="text" id="abogadoNombre" placeholder="ej: Dr. Pérez">
+            </div>
+            <button onclick="asignarCaso()" class="btn-primary">Asignar</button>
+        </div>
+    </div>
+
+    <!-- Modal Ver/Actualizar Caso -->
+    <div id="viewModal" class="modal">
+        <div class="modal-content">
+            <span class="modal-close" onclick="cerrarModal('viewModal')">&times;</span>
+            <h2>Detalle del Caso</h2>
+            <input type="hidden" id="viewCaseId">
+            <div id="caseDetail" style="margin-bottom: 1rem;"></div>
+            <div class="form-group">
+                <label for="nuevoStatus">Actualizar Estado</label>
+                <select id="nuevoStatus">
+                    <option value="nuevo">Nuevo</option>
+                    <option value="asignado">Asignado</option>
+                    <option value="proceso">En Proceso</option>
+                    <option value="cerrado">Cerrado</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label for="notas">Notas</label>
+                <textarea id="notas" rows="3" placeholder="Notas sobre el caso..."></textarea>
+            </div>
+            <button onclick="actualizarEstado()" class="btn-primary">Actualizar Estado</button>
+        </div>
+    </div>
+
+    <script>
+        // ============================================
+        // CONFIGURACIÓN
+        // ============================================
+        const API_BASE = 'https://f4tdwwihq1.execute-api.us-east-1.amazonaws.com/production';
+        const CLOUDFRONT_URL = 'https://d1wui6q7x48uzo.cloudfront.net';
+        
+        // Estado global
+        let casos = [];
+        let abogadoActual = localStorage.getItem('abogadoId') || prompt('Ingresa tu ID de abogado:');
+        localStorage.setItem('abogadoId', abogadoActual);
+        
+        // ============================================
+        // FUNCIONES PRINCIPALES
+        // ============================================
+        
+        // Cargar casos al iniciar
+        document.addEventListener('DOMContentLoaded', () => {
+            document.getElementById('abogadoDisplay').textContent = `Abogado: ${abogadoActual}`;
+            cargarCasos();
+        });
+        
+        async function cargarCasos() {
+            mostrarMensaje('Cargando casos...', 'info');
+            
+            try {
+                // Construir URL con filtros
+                const params = new URLSearchParams();
+                const servicio = document.getElementById('filtroServicio').value;
+                const status = document.getElementById('filtroStatus').value;
+                const filtroAbogado = document.getElementById('filtroAbogado').value;
+                
+                if (servicio) params.append('servicio', servicio);
+                if (status) params.append('status', status);
+                
+                const url = `${API_BASE}/cases${params.toString() ? '?' + params.toString() : ''}`;
+                
+                console.log('Fetching:', url);
+                
+                const response = await fetch(url, {
+                    method: 'GET',
+                    headers: {
+                        'Origin': CLOUDFRONT_URL
+                    }
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`Error ${response.status}: ${await response.text()}`);
+                }
+                
+                const data = await response.json();
+                casos = data.items || [];
+                
+                // Filtrar por abogado si es necesario
+                let casosFiltrados = casos;
+                if (filtroAbogado === 'misCasos') {
+                    casosFiltrados = casos.filter(c => c.abogadoId === abogadoActual);
+                }
+                
+                renderizarTabla(casosFiltrados);
+                actualizarEstadisticas(casos);
+                ocultarMensaje();
+                
+            } catch (error) {
+                console.error('Error:', error);
+                mostrarMensaje('Error al cargar casos: ' + error.message, 'error');
+            }
+        }
+        
+        function renderizarTabla(casosMostrar) {
+            const tbody = document.getElementById('casesTableBody');
+            
+            if (casosMostrar.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="8" class="loading">No hay casos que mostrar</td></tr>';
+                return;
+            }
+            
+            tbody.innerHTML = casosMostrar.map(caso => `
+                <tr>
+                    <td>${caso.id.substring(0, 8)}...</td>
+                    <td>${new Date(caso.fecha).toLocaleDateString()}</td>
+                    <td>${caso.nombre}</td>
+                    <td>
+                        ${caso.email}<br>
+                        <small>${caso.telefono}</small>
+                    </td>
+                    <td>${getServicioLabel(caso.servicio)}</td>
+                    <td>
+                        <span class="status-badge status-${caso.status || 'nuevo'}">
+                            ${caso.status || 'nuevo'}
+                        </span>
+                    </td>
+                    <td>${caso.abogadoNombre || '-'}</td>
+                    <td>
+                        <button class="btn-action btn-assign" onclick="abrirModalAsignar('${caso.id}')">Asignar</button>
+                        <button class="btn-action btn-view" onclick="abrirModalVer('${caso.id}')">Ver</button>
+                    </td>
+                </tr>
+            `).join('');
+        }
+        
+        function actualizarEstadisticas(todosLosCasos) {
+            document.getElementById('totalCasos').textContent = todosLosCasos.length;
+            document.getElementById('casosNuevos').textContent = 
+                todosLosCasos.filter(c => !c.status || c.status === 'nuevo').length;
+            document.getElementById('casosAsignados').textContent = 
+                todosLosCasos.filter(c => c.status === 'asignado' || c.status === 'proceso').length;
+            document.getElementById('casosCerrados').textContent = 
+                todosLosCasos.filter(c => c.status === 'cerrado').length;
+        }
+        
+        // ============================================
+        // FUNCIONES DE ASIGNACIÓN
+        // ============================================
+        
+        function abrirModalAsignar(caseId) {
+            document.getElementById('assignCaseId').value = caseId;
+            document.getElementById('abogadoId').value = abogadoActual;
+            document.getElementById('assignModal').style.display = 'block';
+        }
+        
+        async function asignarCaso() {
+            const caseId = document.getElementById('assignCaseId').value;
+            const abogadoId = document.getElementById('abogadoId').value;
+            const abogadoNombre = document.getElementById('abogadoNombre').value;
+            
+            if (!abogadoId || !abogadoNombre) {
+                alert('Completa todos los campos');
+                return;
+            }
+            
+            try {
+                mostrarMensaje('Asignando caso...', 'info');
+                
+                const response = await fetch(`${API_BASE}/cases/${caseId}/assign`, {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Origin': CLOUDFRONT_URL
+                    },
+                    body: JSON.stringify({ abogadoId, abogadoNombre })
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`Error ${response.status}`);
+                }
+                
+                const result = await response.json();
+                
+                mostrarMensaje('✅ Caso asignado correctamente', 'success');
+                cerrarModal('assignModal');
+                cargarCasos(); // Recargar la lista
+                
+            } catch (error) {
+                console.error('Error:', error);
+                mostrarMensaje('Error al asignar caso', 'error');
+            }
+        }
+        
+        // ============================================
+        // FUNCIONES DE ACTUALIZACIÓN
+        // ============================================
+        
+        async function abrirModalVer(caseId) {
+            document.getElementById('viewCaseId').value = caseId;
+            
+            // Buscar el caso en la lista
+            const caso = casos.find(c => c.id === caseId);
+            
+            if (caso) {
+                document.getElementById('caseDetail').innerHTML = `
+                    <p><strong>Cliente:</strong> ${caso.nombre}</p>
+                    <p><strong>Email:</strong> ${caso.email}</p>
+                    <p><strong>Teléfono:</strong> ${caso.telefono}</p>
+                    <p><strong>Servicio:</strong> ${getServicioLabel(caso.servicio)}</p>
+                    <p><strong>Descripción:</strong> ${caso.descripcion}</p>
+                    <p><strong>Estado actual:</strong> ${caso.status || 'nuevo'}</p>
+                    ${caso.abogadoNombre ? `<p><strong>Abogado:</strong> ${caso.abogadoNombre}</p>` : ''}
+                `;
+                
+                document.getElementById('nuevoStatus').value = caso.status || 'nuevo';
+                document.getElementById('notas').value = caso.notas || '';
+            }
+            
+            document.getElementById('viewModal').style.display = 'block';
+        }
+        
+        async function actualizarEstado() {
+            const caseId = document.getElementById('viewCaseId').value;
+            const status = document.getElementById('nuevoStatus').value;
+            const notas = document.getElementById('notas').value;
+            
+            try {
+                mostrarMensaje('Actualizando estado...', 'info');
+                
+                const response = await fetch(`${API_BASE}/cases/${caseId}/status`, {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Origin': CLOUDFRONT_URL
+                    },
+                    body: JSON.stringify({ status, notas })
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`Error ${response.status}`);
+                }
+                
+                mostrarMensaje('✅ Estado actualizado correctamente', 'success');
+                cerrarModal('viewModal');
+                cargarCasos(); // Recargar la lista
+                
+            } catch (error) {
+                console.error('Error:', error);
+                mostrarMensaje('Error al actualizar estado', 'error');
+            }
+        }
+        
+        // ============================================
+        // FUNCIONES AUXILIARES
+        // ============================================
+        
+        function getServicioLabel(servicio) {
+            const labels = {
+                'derecho-peticion': 'D. Petición',
+                'accion-tutela': 'Acc. Tutela',
+                'querella': 'Querella',
+                'consultoria': 'Consultoría',
+                'otro': 'Otro'
+            };
+            return labels[servicio] || servicio;
+        }
+        
+        function cambiarAbogado() {
+            const nuevo = prompt('Ingresa tu ID de abogado:');
+            if (nuevo) {
+                abogadoActual = nuevo;
+                localStorage.setItem('abogadoId', abogadoActual);
+                document.getElementById('abogadoDisplay').textContent = `Abogado: ${abogadoActual}`;
+                cargarCasos();
+            }
+        }
+        
+        function cerrarModal(modalId) {
+            document.getElementById(modalId).style.display = 'none';
+        }
+        
+        function mostrarMensaje(texto, tipo) {
+            const container = document.getElementById('messageContainer');
+            container.innerHTML = `<div class="${tipo}-message">${texto}</div>`;
+        }
+        
+        function ocultarMensaje() {
+            document.getElementById('messageContainer').innerHTML = '';
+        }
+        
+        // Cerrar modales al hacer clic fuera
+        window.onclick = function(event) {
+            if (event.target.classList.contains('modal')) {
+                event.target.style.display = 'none';
+            }
+        }
+    </script>
+</body>
+</html>
+
