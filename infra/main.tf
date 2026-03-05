@@ -302,6 +302,8 @@ resource "aws_lambda_function" "case_manager" {
   runtime         = "nodejs18.x"
   timeout         = 30
 
+  source_code_hash = filebase64sha256("case-manager.zip")
+
   environment {
     variables = {
       DYNAMODB_TABLE = aws_dynamodb_table.leads.name
@@ -410,7 +412,9 @@ resource "aws_api_gateway_deployment" "production" {
     aws_api_gateway_integration.cases_get,           # ← NUEVO
     aws_api_gateway_integration.cases_id_get,        # ← NUEVO
     aws_api_gateway_integration.cases_id_assign_put, # ← NUEVO
-    aws_api_gateway_integration.cases_id_status_put  # ← NUEVO
+    aws_api_gateway_integration.cases_id_status_put,
+    aws_api_gateway_integration.cases_id_assign_options,   # 👈 NUEVO
+    aws_api_gateway_integration.cases_id_status_options  # ← NUEVO
   ]
 
   rest_api_id = aws_api_gateway_rest_api.main.id
@@ -518,6 +522,51 @@ resource "aws_api_gateway_method" "cases_id_assign_put" {
   authorization = "NONE"
 }
 
+# ============================================
+# OPTIONS para /cases/{id}/assign (NUEVO)
+# ============================================
+resource "aws_api_gateway_method" "cases_id_assign_options" {
+  rest_api_id   = aws_api_gateway_rest_api.main.id
+  resource_id   = aws_api_gateway_resource.cases_id_assign.id
+  http_method   = "OPTIONS"
+  authorization = "NONE"
+}
+
+resource "aws_api_gateway_integration" "cases_id_assign_options" {
+  rest_api_id = aws_api_gateway_rest_api.main.id
+  resource_id = aws_api_gateway_resource.cases_id_assign.id
+  http_method = aws_api_gateway_method.cases_id_assign_options.http_method
+  type = "MOCK"
+  request_templates = {
+    "application/json" = "{\"statusCode\": 200}"
+  }
+}
+
+resource "aws_api_gateway_method_response" "cases_id_assign_options" {
+  rest_api_id = aws_api_gateway_rest_api.main.id
+  resource_id = aws_api_gateway_resource.cases_id_assign.id
+  http_method = aws_api_gateway_method.cases_id_assign_options.http_method
+  status_code = "200"
+  response_parameters = {
+    "method.response.header.Access-Control-Allow-Headers" = true
+    "method.response.header.Access-Control-Allow-Methods" = true
+    "method.response.header.Access-Control-Allow-Origin"  = true
+  }
+}
+
+resource "aws_api_gateway_integration_response" "cases_id_assign_options" {
+  rest_api_id = aws_api_gateway_rest_api.main.id
+  resource_id = aws_api_gateway_resource.cases_id_assign.id
+  http_method = aws_api_gateway_method.cases_id_assign_options.http_method
+  status_code = aws_api_gateway_method_response.cases_id_assign_options.status_code
+  response_parameters = {
+    "method.response.header.Access-Control-Allow-Headers" = "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+    "method.response.header.Access-Control-Allow-Methods" = "'PUT,OPTIONS'"
+    "method.response.header.Access-Control-Allow-Origin"  = "'https://d1wui6q7x48uzo.cloudfront.net'"
+  }
+  depends_on = [aws_api_gateway_integration.cases_id_assign_options]
+}
+
 resource "aws_api_gateway_integration" "cases_id_assign_put" {
   rest_api_id = aws_api_gateway_rest_api.main.id
   resource_id = aws_api_gateway_resource.cases_id_assign.id
@@ -541,6 +590,51 @@ resource "aws_api_gateway_method" "cases_id_status_put" {
   resource_id   = aws_api_gateway_resource.cases_id_status.id
   http_method   = "PUT"
   authorization = "NONE"
+}
+
+# ============================================
+# OPTIONS para /cases/{id}/status (NUEVO)
+# ============================================
+resource "aws_api_gateway_method" "cases_id_status_options" {
+  rest_api_id   = aws_api_gateway_rest_api.main.id
+  resource_id   = aws_api_gateway_resource.cases_id_status.id
+  http_method   = "OPTIONS"
+  authorization = "NONE"
+}
+
+resource "aws_api_gateway_integration" "cases_id_status_options" {
+  rest_api_id = aws_api_gateway_rest_api.main.id
+  resource_id = aws_api_gateway_resource.cases_id_status.id
+  http_method = aws_api_gateway_method.cases_id_status_options.http_method
+  type = "MOCK"
+  request_templates = {
+    "application/json" = "{\"statusCode\": 200}"
+  }
+}
+
+resource "aws_api_gateway_method_response" "cases_id_status_options" {
+  rest_api_id = aws_api_gateway_rest_api.main.id
+  resource_id = aws_api_gateway_resource.cases_id_status.id
+  http_method = aws_api_gateway_method.cases_id_status_options.http_method
+  status_code = "200"
+  response_parameters = {
+    "method.response.header.Access-Control-Allow-Headers" = true
+    "method.response.header.Access-Control-Allow-Methods" = true
+    "method.response.header.Access-Control-Allow-Origin"  = true
+  }
+}
+
+resource "aws_api_gateway_integration_response" "cases_id_status_options" {
+  rest_api_id = aws_api_gateway_rest_api.main.id
+  resource_id = aws_api_gateway_resource.cases_id_status.id
+  http_method = aws_api_gateway_method.cases_id_status_options.http_method
+  status_code = aws_api_gateway_method_response.cases_id_status_options.status_code
+  response_parameters = {
+    "method.response.header.Access-Control-Allow-Headers" = "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+    "method.response.header.Access-Control-Allow-Methods" = "'PUT,OPTIONS'"
+    "method.response.header.Access-Control-Allow-Origin"  = "'https://d1wui6q7x48uzo.cloudfront.net'"
+  }
+  depends_on = [aws_api_gateway_integration.cases_id_status_options]
 }
 
 resource "aws_api_gateway_integration" "cases_id_status_put" {

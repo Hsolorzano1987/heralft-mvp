@@ -88,7 +88,7 @@ exports.handler = async (event) => {
 };
 
 // ============================================
-// FUNCIÓN 1: listCases - Obtiene todos los casos (con filtros)
+// FUNCIÓN: listCases - Obtiene todos los casos (con filtros)
 // ============================================
 async function listCases(event) {
   console.log('📋 Ejecutando listCases...');
@@ -97,15 +97,18 @@ async function listCases(event) {
     const queryParams = event.queryStringParameters || {};
     const { servicio, status } = queryParams;
     
-    // Configurar SCAN
+    console.log('Parámetros de filtro:', { servicio, status });
+    
+    // Configurar SCAN base
     let scanParams = {
       TableName: tableName,
       Limit: 100
     };
     
-    // Aplicar filtros si existen
+    // Si hay filtros, construimos la expresión
     let filterExpressions = [];
     let expressionValues = {};
+    let expressionNames = {};
     
     if (servicio) {
       filterExpressions.push('servicio = :servicio');
@@ -113,18 +116,20 @@ async function listCases(event) {
     }
     
     if (status) {
-      filterExpressions.push('status = :status');
+      // IMPORTANTE: Usamos alias '#st' para 'status'
+      filterExpressions.push('#st = :status');
+      expressionNames['#st'] = 'status';
       expressionValues[':status'] = status;
     }
     
+    // Si tenemos filtros, los agregamos al scanParams
     if (filterExpressions.length > 0) {
       scanParams.FilterExpression = filterExpressions.join(' AND ');
       scanParams.ExpressionAttributeValues = expressionValues;
-
-        scanParams.ExpressionAttributeNames = {
-        '#st': 'status'
-     };
-     scanParams.FilterExpression = scanParams.FilterExpression.replace(/status/g, '#st');
+      
+      if (Object.keys(expressionNames).length > 0) {
+        scanParams.ExpressionAttributeNames = expressionNames;
+      }
     }
     
     console.log('🔍 Parámetros de scan:', JSON.stringify(scanParams, null, 2));
