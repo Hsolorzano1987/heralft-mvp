@@ -160,8 +160,81 @@ resource "aws_cloudfront_distribution" "website" {
     }
   }
 
+  aliases = ["admin.heralf-legal.com"]
+
+viewer_certificate {
+  acm_certificate_arn = "arn:aws:acm:us-east-1:992382788860:certificate/a85820db-1132-4cf9-8b89-cb0e9c119efc"
+  ssl_support_method   = "sni-only"
+  minimum_protocol_version = "TLSv1.2_2021"
+}
+
+  tags = local.tags
+}
+
+# ============================================
+# CLOUDFRONT - Distribución PÚBLICA (landing page)
+# ============================================
+resource "aws_cloudfront_distribution" "public_website" {
+  enabled             = true
+  is_ipv6_enabled     = true
+  comment             = "CloudFront público para www.heralf-legal.com"
+  default_root_object = "index.html"
+  price_class         = "PriceClass_100"
+
+  origin {
+    domain_name = aws_s3_bucket.website.bucket_regional_domain_name
+    origin_id   = "S3-${aws_s3_bucket.website.bucket}"
+
+    s3_origin_config {
+      origin_access_identity = aws_cloudfront_origin_access_identity.website.cloudfront_access_identity_path
+    }
+  }
+
+  default_cache_behavior {
+    allowed_methods  = ["DELETE", "GET", "HEAD", "OPTIONS", "PATCH", "POST", "PUT"]
+    cached_methods   = ["GET", "HEAD"]
+    target_origin_id = "S3-${aws_s3_bucket.website.bucket}"
+
+    forwarded_values {
+      query_string = false
+      headers      = ["Origin"]
+
+      cookies {
+        forward = "none"
+      }
+    }
+
+    viewer_protocol_policy = "redirect-to-https"
+    min_ttl                = 0
+    default_ttl            = 3600
+    max_ttl                = 86400
+  }
+
+  custom_error_response {
+    error_code         = 404
+    response_code      = 200
+    response_page_path = "/index.html"
+  }
+
+  custom_error_response {
+    error_code         = 403
+    response_code      = 200
+    response_page_path = "/index.html"
+  }
+
+  restrictions {
+    geo_restriction {
+      restriction_type = "none"
+    }
+  }
+
+  # DOMINIOS PÚBLICOS
+  aliases = ["www.heralf-legal.com", "heralf-legal.com"]
+
   viewer_certificate {
-    cloudfront_default_certificate = true  # Certificado SSL gratuito
+    acm_certificate_arn = "arn:aws:acm:us-east-1:992382788860:certificate/a85820db-1132-4cf9-8b89-cb0e9c119efc"
+    ssl_support_method   = "sni-only"
+    minimum_protocol_version = "TLSv1.2_2021"
   }
 
   tags = local.tags
@@ -171,7 +244,7 @@ resource "aws_cloudfront_distribution" "website" {
 # 3. DYNAMODB - Tabla para leads
 # ============================================
 resource "aws_dynamodb_table" "leads" {
-  name         = "heralft-leads-mvp"
+  name         = "heralf-legal-leads"
   billing_mode = "PAY_PER_REQUEST"
   hash_key     = "id"
 
@@ -277,14 +350,16 @@ resource "aws_iam_role_policy" "lambda_policy" {
 resource "aws_lambda_function" "form_processor" {
   filename         = "form-processor.zip"
   function_name    = "heralft-mvp-form-processor"
+  description      = "Procesador de formularios - actualizado"   # ← NUEVA LÍNEA
   role            = aws_iam_role.lambda_role.arn
   handler         = "index.handler"
   runtime         = "nodejs18.x"
   timeout         = 30
+  # Forzar actualización - 2026-03-15  ← AGREGAR ESTA LÍNEA
 
   environment {
     variables = {
-      DYNAMODB_TABLE = aws_dynamodb_table.leads.name
+      DYNAMODB_TABLE = "heralf-legal-leads"
     }
   }
 
@@ -306,7 +381,7 @@ resource "aws_lambda_function" "case_manager" {
 
   environment {
     variables = {
-      DYNAMODB_TABLE = aws_dynamodb_table.leads.name
+      DYNAMODB_TABLE = "heralf-legal-leads"
     }
   }
 

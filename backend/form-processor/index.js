@@ -10,22 +10,25 @@ exports.handler = async (event) => {
     // 🔥 ORÍGENES PERMITIDOS - Actualizado para el nuevo proyecto
     const allowedOrigins = [
         'https://d1wui6q7x48uzo.cloudfront.net',  // NUEVO CloudFront (MVP)
-        'https://d3j9ea8ae2wjdm.cloudfront.net',  // Proyecto anterior (opcional)
-        'http://localhost:3000'                    // Desarrollo local
+        'https://d2kzko6trinlft.cloudfront.net',  // Proyecto anterior (opcional)
+        'http://localhost:3000',
+        'https://www.heralf-legal.com',
+        'https://heralf-legal.com',    // ← NUEVO
+        'https://admin.heralf-legal.com'                    // Desarrollo local
     ];
     
     // Determinar el origen de la solicitud
-    const requestOrigin = event.headers?.origin || event.headers?.Origin || '';
-    const corsOrigin = allowedOrigins.includes(requestOrigin) ? requestOrigin : allowedOrigins[0];
-    
-    // 🔥 HEADERS CORS DINÁMICOS
-    const corsHeaders = {
-        'Access-Control-Allow-Origin': corsOrigin,
-        'Access-Control-Allow-Headers': 'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token',
-        'Access-Control-Allow-Methods': 'OPTIONS,POST,GET',
-        'Access-Control-Allow-Credentials': 'true',
-        'Content-Type': 'application/json'
-    };
+const requestOrigin = event.headers?.origin || event.headers?.Origin || '';
+const corsOrigin = allowedOrigins.includes(requestOrigin) ? requestOrigin : 'https://heralf-legal.com';
+
+// 🔥 HEADERS CORS DINÁMICOS - ACTUALIZADO 2026-03-15
+const corsHeaders = {
+    'Access-Control-Allow-Origin': corsOrigin,
+    'Access-Control-Allow-Headers': 'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token',
+    'Access-Control-Allow-Methods': 'OPTIONS,POST,GET',
+    'Access-Control-Allow-Credentials': 'true',
+    'Content-Type': 'application/json'
+};
     
     // 🔥 DETECCIÓN de OPTIONS (preflight CORS)
     const isOptionsRequest = 
