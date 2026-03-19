@@ -545,6 +545,52 @@ resource "aws_api_gateway_method" "cases_get" {
   resource_id   = aws_api_gateway_resource.cases.id
   http_method   = "GET"
   authorization = "NONE"
+  
+}
+
+# ============================================
+# OPTIONS para /cases
+# ============================================
+resource "aws_api_gateway_method" "cases_options" {
+  rest_api_id   = aws_api_gateway_rest_api.main.id
+  resource_id   = aws_api_gateway_resource.cases.id
+  http_method   = "OPTIONS"
+  authorization = "NONE"
+}
+
+resource "aws_api_gateway_integration" "cases_options" {
+  rest_api_id = aws_api_gateway_rest_api.main.id
+  resource_id = aws_api_gateway_resource.cases.id
+  http_method = aws_api_gateway_method.cases_options.http_method
+  type = "MOCK"
+  request_templates = {
+    "application/json" = "{\"statusCode\": 200}"
+  }
+}
+
+resource "aws_api_gateway_method_response" "cases_options" {
+  rest_api_id = aws_api_gateway_rest_api.main.id
+  resource_id = aws_api_gateway_resource.cases.id
+  http_method = aws_api_gateway_method.cases_options.http_method
+  status_code = "200"
+  response_parameters = {
+    "method.response.header.Access-Control-Allow-Headers" = true
+    "method.response.header.Access-Control-Allow-Methods" = true
+    "method.response.header.Access-Control-Allow-Origin"  = true
+  }
+}
+
+resource "aws_api_gateway_integration_response" "cases_options" {
+  rest_api_id = aws_api_gateway_rest_api.main.id
+  resource_id = aws_api_gateway_resource.cases.id
+  http_method = aws_api_gateway_method.cases_options.http_method
+  status_code = aws_api_gateway_method_response.cases_options.status_code
+  response_parameters = {
+    "method.response.header.Access-Control-Allow-Headers" = "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+    "method.response.header.Access-Control-Allow-Methods" = "'GET,OPTIONS'"
+    "method.response.header.Access-Control-Allow-Origin"  = "'https://admin.heralf-legal.com'"
+  }
+  depends_on = [aws_api_gateway_integration.cases_options]
 }
 
 resource "aws_api_gateway_integration" "cases_get" {
@@ -637,7 +683,7 @@ resource "aws_api_gateway_integration_response" "cases_id_assign_options" {
   response_parameters = {
     "method.response.header.Access-Control-Allow-Headers" = "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
     "method.response.header.Access-Control-Allow-Methods" = "'PUT,OPTIONS'"
-    "method.response.header.Access-Control-Allow-Origin"  = "'https://d1wui6q7x48uzo.cloudfront.net'"
+    "method.response.header.Access-Control-Allow-Origin"  = "'https://admin.heralf-legal.com'"
   }
   depends_on = [aws_api_gateway_integration.cases_id_assign_options]
 }
@@ -668,7 +714,7 @@ resource "aws_api_gateway_method" "cases_id_status_put" {
 }
 
 # ============================================
-# OPTIONS para /cases/{id}/status (NUEVO)
+# OPTIONS para /cases/{id}/status (CORREGIDO)
 # ============================================
 resource "aws_api_gateway_method" "cases_id_status_options" {
   rest_api_id   = aws_api_gateway_rest_api.main.id
@@ -707,7 +753,8 @@ resource "aws_api_gateway_integration_response" "cases_id_status_options" {
   response_parameters = {
     "method.response.header.Access-Control-Allow-Headers" = "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
     "method.response.header.Access-Control-Allow-Methods" = "'PUT,OPTIONS'"
-    "method.response.header.Access-Control-Allow-Origin"  = "'https://d1wui6q7x48uzo.cloudfront.net'"
+    # 👇 ESTA ES LA LÍNEA CORREGIDA (cambié el origen)
+    "method.response.header.Access-Control-Allow-Origin"  = "'https://admin.heralf-legal.com'"
   }
   depends_on = [aws_api_gateway_integration.cases_id_status_options]
 }
@@ -732,6 +779,104 @@ resource "aws_lambda_permission" "case_manager_api_gw" {
   principal     = "apigateway.amazonaws.com"
 
   source_arn = "${aws_api_gateway_rest_api.main.execution_arn}/*/*/cases*"
+}
+
+# ============================================
+# 7. DYNAMODB - Tabla para abogados (NUEVA)
+# ============================================
+resource "aws_dynamodb_table" "abogados" {
+  name         = "heralft-abogados"
+  billing_mode = "PAY_PER_REQUEST"
+  hash_key     = "email"
+
+  attribute {
+    name = "email"
+    type = "S"
+  }
+
+  attribute {
+    name = "estado"
+    type = "S"
+  }
+
+  global_secondary_index {
+    name            = "EstadoIndex"
+    hash_key        = "estado"
+    projection_type = "ALL"
+  }
+
+  tags = local.tags
+}
+
+# ============================================
+# 8. COGNITO - User Pool para abogados
+# ============================================
+resource "aws_cognito_user_pool" "abogados" {
+  name = "heralft-abogados-pool"
+
+  auto_verified_attributes = ["email"]
+
+  password_policy {
+    minimum_length    = 8
+    require_lowercase = true
+    require_numbers   = true
+    require_symbols   = false
+    require_uppercase = true
+  }
+
+  tags = local.tags
+}
+
+resource "aws_cognito_user_pool_client" "abogados" {
+  name         = "heralft-abogados-client"
+  user_pool_id = aws_cognito_user_pool.abogados.id
+
+  explicit_auth_flows = ["ALLOW_USER_PASSWORD_AUTH", "ALLOW_REFRESH_TOKEN_AUTH"]
+
+  generate_secret = false
+}
+
+# ============================================
+# 9. LAMBDA - Authorizer para el panel de abogados
+# ============================================
+resource "aws_lambda_function" "authorizer" {
+  filename         = "authorizer.zip"
+  function_name    = "heralft-mvp-authorizer"
+  role            = aws_iam_role.lambda_role.arn
+  handler         = "index.handler"
+  runtime         = "nodejs18.x"
+  timeout         = 10
+
+  environment {
+    variables = {
+      USER_POOL_ID = aws_cognito_user_pool.abogados.id
+      CLIENT_ID    = aws_cognito_user_pool_client.abogados.id
+      TABLE_NAME   = aws_dynamodb_table.abogados.name
+    }
+  }
+
+  tags = local.tags
+}
+
+# ============================================
+# 10. API GATEWAY - Authorizer para el panel
+# ============================================
+resource "aws_api_gateway_authorizer" "panel" {
+  name                   = "cognito-authorizer"
+  rest_api_id            = aws_api_gateway_rest_api.main.id
+  authorizer_uri         = aws_lambda_function.authorizer.invoke_arn
+  authorizer_credentials = aws_iam_role.lambda_role.arn
+  authorizer_result_ttl_in_seconds = 300
+  type                   = "TOKEN"
+  identity_source        = "method.request.header.Authorization"
+}
+
+resource "aws_lambda_permission" "authorizer" {
+  statement_id  = "AllowAPIGatewayInvoke"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.authorizer.function_name
+  principal     = "apigateway.amazonaws.com"
+  source_arn    = "${aws_api_gateway_rest_api.main.execution_arn}/authorizers/${aws_api_gateway_authorizer.panel.id}"
 }
 
 # ============================================
