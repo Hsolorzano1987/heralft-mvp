@@ -785,7 +785,7 @@ resource "aws_lambda_permission" "case_manager_api_gw" {
 # 7. DYNAMODB - Tabla para abogados (NUEVA)
 # ============================================
 resource "aws_dynamodb_table" "abogados" {
-  name         = "heralft-abogados"
+  name         = "heralft-abogados-qa"
   billing_mode = "PAY_PER_REQUEST"
   hash_key     = "email"
 
@@ -812,7 +812,7 @@ resource "aws_dynamodb_table" "abogados" {
 # 8. COGNITO - User Pool para abogados
 # ============================================
 resource "aws_cognito_user_pool" "abogados" {
-  name = "heralft-abogados-pool"
+  name = "heralft-abogados-pool-qa"
 
   auto_verified_attributes = ["email"]
 
@@ -828,7 +828,7 @@ resource "aws_cognito_user_pool" "abogados" {
 }
 
 resource "aws_cognito_user_pool_client" "abogados" {
-  name         = "heralft-abogados-client"
+  name         = "heralft-abogados-client-qa"
   user_pool_id = aws_cognito_user_pool.abogados.id
 
   explicit_auth_flows = ["ALLOW_USER_PASSWORD_AUTH", "ALLOW_REFRESH_TOKEN_AUTH"]
@@ -841,7 +841,7 @@ resource "aws_cognito_user_pool_client" "abogados" {
 # ============================================
 resource "aws_lambda_function" "authorizer" {
   filename         = "authorizer.zip"
-  function_name    = "heralft-mvp-authorizer"
+  function_name    = "heralft-mvp-authorizer-qa"
   role            = aws_iam_role.lambda_role.arn
   handler         = "index.handler"
   runtime         = "nodejs18.x"
