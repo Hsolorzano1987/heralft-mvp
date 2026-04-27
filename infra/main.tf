@@ -16,18 +16,28 @@ provider "aws" {
   region = var.aws_region
 }
 
+
+
 # Random suffix para nombres únicos
 resource "random_id" "suffix" {
   byte_length = 4
 }
 
-# Local values
+# Local values - Fusionados para dinamismo
 locals {
-  bucket_name = "heralft-mvp-${random_id.suffix.hex}"
+  # Tu lógica: si es qa, sufijo '-qa'; si no, vacío (ideal para prod)
+  workspace_suffix = terraform.workspace == "qa" ? "-qa" : ""
+  
+  # Usamos el sufijo para el nombre del bucket y las etiquetas
+  bucket_name = "heralft-mvp-${random_id.suffix.hex}${local.workspace_suffix}"
+
+  cors_origin = terraform.workspace == "qa" ? "'*'" : "'https://admin.heralf-legal.com'"
+
+  cors_origin_formulario = terraform.workspace == "qa" ? "'*'" : "'https://www.heralf-legal.com'"
   
   tags = {
-    Name        = "heralft-mvp"
-    Environment = "production"
+    Name        = "heralft-mvp${local.workspace_suffix}"
+    Environment = terraform.workspace
     Project     = "heralft-mvp"
   }
 }
@@ -160,7 +170,7 @@ resource "aws_cloudfront_distribution" "website" {
     }
   }
 
-  aliases = ["admin.heralf-legal.com"]
+  aliases = terraform.workspace == "qa" ? [] : ["admin.heralf-legal.com"]
 
 viewer_certificate {
   acm_certificate_arn = "arn:aws:acm:us-east-1:992382788860:certificate/a85820db-1132-4cf9-8b89-cb0e9c119efc"
@@ -229,7 +239,7 @@ resource "aws_cloudfront_distribution" "public_website" {
   }
 
   # DOMINIOS PÚBLICOS
-  aliases = ["www.heralf-legal.com", "heralf-legal.com"]
+  aliases = terraform.workspace == "qa" ? [] : ["www.heralf-legal.com", "heralf-legal.com"]
 
   viewer_certificate {
     acm_certificate_arn = "arn:aws:acm:us-east-1:992382788860:certificate/a85820db-1132-4cf9-8b89-cb0e9c119efc"
@@ -244,7 +254,7 @@ resource "aws_cloudfront_distribution" "public_website" {
 # 3. DYNAMODB - Tabla para leads
 # ============================================
 resource "aws_dynamodb_table" "leads" {
-  name         = "heralf-legal-leads"
+  name         = "heralf-legal-leads${local.workspace_suffix}"
   billing_mode = "PAY_PER_REQUEST"
   hash_key     = "id"
 
@@ -293,7 +303,7 @@ resource "aws_dynamodb_table" "leads" {
 # 4. IAM ROLE Y POLÍTICAS para Lambda
 # ============================================
 resource "aws_iam_role" "lambda_role" {
-  name = "heralft-mvp-lambda-role"
+  name = "heralft-mvp-lambda-role${local.workspace_suffix}"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
@@ -349,7 +359,7 @@ resource "aws_iam_role_policy" "lambda_policy" {
 # ============================================
 resource "aws_lambda_function" "form_processor" {
   filename         = "form-processor.zip"
-  function_name    = "heralft-mvp-form-processor"
+  function_name    = "heralft-mvp-form-processor${local.workspace_suffix}"
   description      = "Procesador de formularios - actualizado"   # ← NUEVA LÍNEA
   role            = aws_iam_role.lambda_role.arn
   handler         = "index.handler"
@@ -359,7 +369,7 @@ resource "aws_lambda_function" "form_processor" {
 
   environment {
     variables = {
-      DYNAMODB_TABLE = "heralf-legal-leads"
+      DYNAMODB_TABLE = "heralf-legal-leads${local.workspace_suffix}"
     }
   }
 
@@ -371,7 +381,7 @@ resource "aws_lambda_function" "form_processor" {
 # ============================================
 resource "aws_lambda_function" "case_manager" {
   filename         = "case-manager.zip"
-  function_name    = "heralft-mvp-case-manager"
+  function_name    = "heralft-mvp-case-manager${local.workspace_suffix}"
   role            = aws_iam_role.lambda_role.arn  # Reutiliza el mismo rol
   handler         = "index.handler"
   runtime         = "nodejs18.x"
@@ -381,7 +391,7 @@ resource "aws_lambda_function" "case_manager" {
 
   environment {
     variables = {
-      DYNAMODB_TABLE = "heralf-legal-leads"
+      DYNAMODB_TABLE = "heralf-legal-leads${local.workspace_suffix}"
     }
   }
 
@@ -392,7 +402,7 @@ resource "aws_lambda_function" "case_manager" {
 # 6. API GATEWAY - REST API para el formulario
 # ============================================
 resource "aws_api_gateway_rest_api" "main" {
-  name        = "heralft-mvp-api"
+  name        = "heralft-mvp-api${local.workspace_suffix}"
   description = "API MVP para HerAlf Legal"
 
   endpoint_configuration {
@@ -473,7 +483,7 @@ resource "aws_api_gateway_integration_response" "options" {
   response_parameters = {
     "method.response.header.Access-Control-Allow-Headers" = "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
     "method.response.header.Access-Control-Allow-Methods" = "'POST,OPTIONS'"
-    "method.response.header.Access-Control-Allow-Origin"  = "'*'"
+    "method.response.header.Access-Control-Allow-Origin"  = local.cors_origin_formulario
   }
 
   depends_on = [aws_api_gateway_integration.options]
@@ -588,7 +598,7 @@ resource "aws_api_gateway_integration_response" "cases_options" {
   response_parameters = {
     "method.response.header.Access-Control-Allow-Headers" = "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
     "method.response.header.Access-Control-Allow-Methods" = "'GET,OPTIONS'"
-    "method.response.header.Access-Control-Allow-Origin"  = "'https://admin.heralf-legal.com'"
+    "method.response.header.Access-Control-Allow-Origin"  = local.cors_origin
   }
   depends_on = [aws_api_gateway_integration.cases_options]
 }
@@ -683,7 +693,7 @@ resource "aws_api_gateway_integration_response" "cases_id_assign_options" {
   response_parameters = {
     "method.response.header.Access-Control-Allow-Headers" = "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
     "method.response.header.Access-Control-Allow-Methods" = "'PUT,OPTIONS'"
-    "method.response.header.Access-Control-Allow-Origin"  = "'https://admin.heralf-legal.com'"
+    "method.response.header.Access-Control-Allow-Origin"  = local.cors_origin
   }
   depends_on = [aws_api_gateway_integration.cases_id_assign_options]
 }
@@ -754,7 +764,7 @@ resource "aws_api_gateway_integration_response" "cases_id_status_options" {
     "method.response.header.Access-Control-Allow-Headers" = "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
     "method.response.header.Access-Control-Allow-Methods" = "'PUT,OPTIONS'"
     # 👇 ESTA ES LA LÍNEA CORREGIDA (cambié el origen)
-    "method.response.header.Access-Control-Allow-Origin"  = "'https://admin.heralf-legal.com'"
+    "method.response.header.Access-Control-Allow-Origin"  = local.cors_origin
   }
   depends_on = [aws_api_gateway_integration.cases_id_status_options]
 }
@@ -785,7 +795,7 @@ resource "aws_lambda_permission" "case_manager_api_gw" {
 # 7. DYNAMODB - Tabla para abogados (NUEVA)
 # ============================================
 resource "aws_dynamodb_table" "abogados" {
-  name         = "heralft-abogados"
+  name         = "heralft-abogados${local.workspace_suffix}"
   billing_mode = "PAY_PER_REQUEST"
   hash_key     = "email"
 
@@ -812,7 +822,7 @@ resource "aws_dynamodb_table" "abogados" {
 # 8. COGNITO - User Pool para abogados
 # ============================================
 resource "aws_cognito_user_pool" "abogados" {
-  name = "heralft-abogados-pool"
+  name = "heralft-abogados-pool${local.workspace_suffix}"
 
   auto_verified_attributes = ["email"]
 
@@ -841,7 +851,7 @@ resource "aws_cognito_user_pool_client" "abogados" {
 # ============================================
 resource "aws_lambda_function" "authorizer" {
   filename         = "authorizer.zip"
-  function_name    = "heralft-mvp-authorizer"
+  function_name    = "heralft-mvp-authorizer${local.workspace_suffix}"
   role            = aws_iam_role.lambda_role.arn
   handler         = "index.handler"
   runtime         = "nodejs18.x"
@@ -862,7 +872,7 @@ resource "aws_lambda_function" "authorizer" {
 # 10. API GATEWAY - Authorizer para el panel
 # ============================================
 resource "aws_api_gateway_authorizer" "panel" {
-  name                   = "cognito-authorizer"
+  name                   = "cognito-authorizer${local.workspace_suffix}"
   rest_api_id            = aws_api_gateway_rest_api.main.id
   authorizer_uri         = aws_lambda_function.authorizer.invoke_arn
   authorizer_credentials = aws_iam_role.lambda_role.arn
@@ -906,3 +916,4 @@ output "dynamodb_table" {
   description = "Nombre de la tabla DynamoDB"
   value       = aws_dynamodb_table.leads.name
 }
+

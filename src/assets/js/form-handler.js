@@ -1,5 +1,5 @@
 ﻿// src/assets/js/form-handler.js - VERSIÓN MVP
-const API_URL = 'https://f4tdwwihq1.execute-api.us-east-1.amazonaws.com/production/formulario';
+const API_URL = 'https://qpj3kanja3.execute-api.us-east-1.amazonaws.com/production/formulario';
 
 document.getElementById('legalForm').addEventListener('submit', async function(e) {
     e.preventDefault();

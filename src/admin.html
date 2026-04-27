@@ -356,8 +356,9 @@
         // ============================================
         // CONFIGURACIÓN
         // ============================================
-        const API_BASE = 'https://f4tdwwihq1.execute-api.us-east-1.amazonaws.com/production';
-        const CLOUDFRONT_URL = 'https://d1wui6q7x48uzo.cloudfront.net';
+     const API_BASE = 'https://f4tdwwihq1.execute-api.us-east-1.amazonaws.com/production';
+     const API_URL = API_BASE;  // para mantener compatibilidad
+     const CLOUDFRONT_URL = 'https://d1wui6q7x48uzo.cloudfront.net';
         
         // Estado global
         let casos = [];
@@ -391,10 +392,10 @@
                 
                 console.log('Fetching:', url);
                 
-                const response = await fetch(url, {
+                const response = await fetch(`${API_BASE}/cases${params.toString() ? '?' + params.toString() : ''}`, {
                     method: 'GET',
                     headers: {
-                        'Origin': CLOUDFRONT_URL
+                        'Content-Type': 'application/json'
                     }
                 });
                 
