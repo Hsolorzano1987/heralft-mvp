@@ -204,6 +204,23 @@
     </style>
 </head>
 <body>
+
+    <script>
+  // Autenticación temporal para beta (solo frontal)
+  (function() {
+    var CONTRASENA = 'HerAlfBeta2026';  // Cámbiala por la que quieras compartir con los abogados
+    var pass = sessionStorage.getItem('auth_pass');
+    if (pass !== CONTRASENA) {
+      var input = prompt('Acceso restringido. Ingresa la contraseña proporcionada por HerAlf:');
+      if (input !== CONTRASENA) {
+        document.body.innerHTML = '<h1 style="text-align:center; margin-top:2rem;">Acceso denegado</h1><p style="text-align:center;">No tienes permiso para ver este panel.</p>';
+        throw new Error('Acceso denegado');
+      }
+      sessionStorage.setItem('auth_pass', input);
+    }
+  })();
+</script>
+
     <header>
         <div class="container">
             <div class="logo-container">
