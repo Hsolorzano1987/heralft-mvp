@@ -33,7 +33,7 @@ locals {
 
   cors_origin = terraform.workspace == "qa" ? "'*'" : "'https://admin.heralf-legal.com'"
 
-  cors_origin_formulario = terraform.workspace == "qa" ? "'*'" : "'https://www.heralf-legal.com'"
+  cors_origin_formulario = terraform.workspace == "qa" ? "'*'" : "'*'"
   
   tags = {
     Name        = "heralft-mvp${local.workspace_suffix}"
